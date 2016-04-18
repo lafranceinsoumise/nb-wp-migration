@@ -72,7 +72,7 @@ var ImportCommand = function () {
           date: post.published_at,
           modified: post.published_at,
           slug: post.slug,
-          title: post.title,
+          title: post.name,
           content: post.content,
           status: 'publish'
         }).on('response', function (res) {
