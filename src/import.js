@@ -46,16 +46,15 @@ class ImportCommand {
   sendPostToWordpress(post) {
     return new Promise((resolve, reject) => {
       request
-      .post(`${this.endpoint}posts/1`)
+      .post(`${this.endpoint}pages`)
       .auth(this.login, this.password, true)
       .form({
         date: post.published_at,
-        date_gmt: post.published_at,
         modified: post.published_at,
-        modified_gmt: post.published_at,
         slug: post.slug,
         title: post.title,
-        content: post.content
+        content: post.content,
+        status: 'publish'
       })
       .on('response', res => {
         console.log(res.statusCode);
