@@ -1,52 +1,97 @@
 'use strict';
 
 const fs = require('fs');
-const https = require('https');
+const inquirer = require('inquirer');
 const program = require('commander');
+const request = require('request');
 
 var nbSlug;
 var nbToken;
 var outputFile;
+var type;
 
 program
   .version(require('./package.json').version)
   .arguments('<nationbuilderslug> <nationbuildertoken> <outputfile>')
+  .option('-T, --type <value>', '"pages" or "posts"')
   .action((nationbuilderurl, nbtoken, outputfile) => {
     nbSlug = nationbuilderurl;
     nbToken = nbtoken;
     outputFile = outputfile;
+    type = program.type;
+    if (['pages', 'posts'].indexOf(type) === -1) {
+      throw new Error('Type must be pages or articles');
+    }
   }).parse(process.argv);
 
 var results = [];
 
-var handleRes = res => {
-  var data = '';
+var handlePages = (error, res, data) => {
+  if (error || res.statusCode !== 200) {
+    console.log(error);
 
-  res.on('data', chunk => {
-    data += chunk;
-  });
+    return;
+  }
+  var json = JSON.parse(data);
 
-  res.on('end', () => {
+  if (json.next) {
+    request(json.next, handlePages);
+  }
+
+  results = results.concat(json.results);
+
+  if (!json.next) {
+    fs.writeFileSync(outputFile, JSON.stringify(results, null, 2));
+  }
+};
+
+if (type === 'pages') {
+  request({
+    url: 'https://' + nbSlug + '.nationbuilder.com/api/v1/sites/' + nbSlug + '/pages/basic_pages?limit=100&access_token=' + nbToken,
+    headers: {
+      Accept: 'application/json'
+    }
+  }, handlePages);
+} else if (type === 'posts') {
+  var handleBlogList = (error, res, data) => {
+    console.log('Getting a page of blogs.');
+    if (error || res.statusCode !== 200) {
+      console.log(error);
+
+      return;
+    }
+
     var json = JSON.parse(data);
 
     if (json.next) {
-      https.get(json.next, handleRes);
+      request(json.next, handleBlogList);
     }
 
     results = results.concat(json.results);
 
     if (!json.next) {
-      fs.writeFileSync(outputFile, JSON.stringify(results, null, 2));
+      inquirer.prompt([{
+        type: 'list',
+        name: 'blog',
+        message: 'Which blog do you want to use ?',
+        choices: results.map(e => ({name: e.name, value: e.id}))
+      }])
+      .then(answers => {
+        results = [];
+        request({
+          url: 'https://' + nbSlug + '.nationbuilder.com/api/v1/sites/' + nbSlug + '/pages/blogs/' + answers.blog + '/posts?limit=100&access_token=' + nbToken,
+          headers: {
+            Accept: 'application/json'
+          }
+        }, handlePages);
+      });
     }
-  });
-};
+  };
 
-https.get({
-  host: nbSlug + '.nationbuilder.com',
-  path: '/api/v1/sites/' + nbSlug + '/pages/basic_pages?limit=100&access_token=' + nbToken,
-  headers: {
-    Accept: 'application/json'
-  }
-}, handleRes).on('error', err => {
-  console.log(err);
-});
+  request({
+    url: 'https://' + nbSlug + '.nationbuilder.com/api/v1/sites/' + nbSlug + '/pages/blogs?limit=100&access_token=' + nbToken,
+    headers: {
+      Accept: 'application/json'
+    }
+  }, handleBlogList);
+}
